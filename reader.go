@@ -33,8 +33,6 @@ type Reader struct {
 	db *sql.DB
 }
 
-var cache varCache
-
 func (r *Reader) findGeneratorObjects() []string {
 	rows, err := r.db.Query(
 		"SELECT objects.id FROM objects " +

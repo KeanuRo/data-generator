@@ -11,8 +11,13 @@ func main() {
 	defer db.Close()
 
 	reader := Reader{db: db}
-
 	objects := reader.GetObjectsToProcess()
+
+	varCache = Cacher{}
+	err := varCache.load()
+	if err != nil {
+		panic(err)
+	}
 
 	channel := make(chan Result)
 	wg := new(sync.WaitGroup)

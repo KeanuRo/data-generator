@@ -3,7 +3,8 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"reflect"
+	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -32,7 +33,7 @@ type Plugin interface {
 func (variable Variable) getPlugin() (Plugin, error) {
 	switch variable.Type {
 	case RAND:
-		return rand{}, nil
+		return randNumber{}, nil
 	case FROM_LIST:
 		return list{}, nil
 	}
@@ -61,17 +62,20 @@ type GeneratorObject struct {
 type GeneratorObjects []GeneratorObject
 
 type Result struct {
-	Type      string
-	Result    string
-	Attribute Attribute
+	linkedId    int
+	generatorId int
+	Type        string
+	Result      string
+	Attribute   Attribute
+	Cache       []cacheItem
 }
 
 func (generatorObjects GeneratorObjects) Calculate(linkedObj LinkedObject, ch chan<- Result, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for _, generatorObject := range generatorObjects {
+	loop:
 		for _, generationRule := range generatorObject.GenerationRules {
 			calculatedIterations := make([]string, 0)
-		loop:
 			for count := range generationRule.Iterations {
 				calculatedVariables := make(map[string]any)
 				for variableName, ruleVar := range generationRule.Variables {
@@ -88,31 +92,77 @@ func (generatorObjects GeneratorObjects) Calculate(linkedObj LinkedObject, ch ch
 					calculatedVariables[variableName] = res
 				}
 
-				formatType := reflect.TypeOf(generationRule.Format).Kind()
-				var format string
-				if formatType == reflect.String {
-					format = generationRule.Format.(string)
-				} else {
-					raw, err := json.Marshal(generationRule.Format)
-					format = string(raw[:])
-					if err != nil {
-						break loop
-					}
+				format, err := applyFormat(generationRule.Format, calculatedVariables, linkedObj.Attributes)
+				if err != nil {
+					break loop
 				}
 
 				calculatedIterations = append(calculatedIterations, format)
 			}
 
-			attribute, ok := linkedObj.Attributes[generationRule.Ident]
-			if !ok {
-				attribute = Attribute{}
+			var value string
+			result := Result{linkedId: linkedObj.ID, generatorId: generatorObject.Id, Type: generationRule.Type}
+			switch generationRule.Type {
+			case TYPE_ATTRIBUTE:
+				if generationRule.Combine {
+					raw, err := json.Marshal(calculatedIterations)
+					if err != nil {
+						break loop
+					}
+					value = string(raw)
+				} else {
+					value = calculatedIterations[0]
+				}
+
+				attribute, ok := linkedObj.Attributes[generationRule.Ident]
+				if !ok {
+					break loop
+				}
+
+				attribute.Value = value
+				linkedObj.Attributes[generationRule.Ident] = attribute
+
+				result.Result = value
+				result.Attribute = attribute
+
+				ch <- result
+			case TYPE_NETFLOW, TYPE_SYSLOG:
+				break loop
+			default:
+				break loop
 			}
-
-			calculated := calculatedIterations[0]
-
-			result := Result{Type: generationRule.Type, Result: calculated, Attribute: attribute}
-
-			ch <- result
 		}
 	}
+}
+
+func applyFormat(format any, calculatedVars map[string]any, attributes map[string]Attribute) (string, error) {
+	readyFormat, ok := format.(string)
+	if !ok {
+		raw, err := json.Marshal(format)
+		if err != nil {
+			return "", err
+		}
+		readyFormat = string(raw[:])
+	}
+
+	for key, value := range calculatedVars {
+		var stringValue string
+		switch value.(type) {
+		case string:
+			stringValue = value.(string)
+		case float64, float32:
+			stringValue = fmt.Sprintf("%f", value)
+		case int64, int:
+			stringValue = fmt.Sprintf("%d", value)
+		default:
+			return "", errors.New("invalid format")
+		}
+		readyFormat = strings.ReplaceAll(readyFormat, "%"+key+"%", stringValue)
+	}
+
+	for key, attribute := range attributes {
+		readyFormat = strings.ReplaceAll(readyFormat, "%"+key+"%", attribute.Value)
+	}
+
+	return readyFormat, nil
 }

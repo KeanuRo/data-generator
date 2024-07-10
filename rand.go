@@ -1,7 +1,13 @@
 package main
 
-type rand struct{}
+import (
+	"math/rand"
+)
 
-func (r rand) calculate(options Options, linkedId, generatorId, iteration int, variable string) (any, error) {
-	return "rand", nil
+type randNumber struct{}
+
+func (r randNumber) calculate(options Options, linkedId, generatorId, iteration int, variable string) (any, error) {
+	miN := 10
+	maX := 30
+	return rand.Intn(maX-miN) + miN, nil
 }
