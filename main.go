@@ -7,6 +7,8 @@ import (
 )
 
 func main() {
+	start := time.Now()
+
 	db := newDB()
 	defer db.Close()
 
@@ -22,8 +24,6 @@ func main() {
 	channel := make(chan Result)
 	wg := new(sync.WaitGroup)
 
-	start := time.Now()
-
 	for _, object := range objects {
 		wg.Add(1)
 		go object.generatorObjects.Calculate(*object, channel, wg)
@@ -38,8 +38,16 @@ func main() {
 
 	wg.Wait()
 	close(channel)
+	varCache.flush()
 
-	fmt.Println(len(results))
+	for _, result := range results {
+		cacheItems := result.Cache
+		for _, cacheI := range cacheItems {
+			varCache.write(result.linkedId, result.generatorId, cacheI)
+		}
+	}
+
+	varCache.save()
 
 	fmt.Println(time.Now().Sub(start))
 }

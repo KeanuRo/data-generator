@@ -14,11 +14,16 @@ const TYPE_NETFLOW = "netflow"
 const RAND = "rand"
 const FROM_LIST = "from-list"
 
+type initialBounds struct {
+	Min int `json:"min"`
+	Max int `json:"max"`
+}
+
 type Options struct {
-	InitialBounds map[string]float32 `json:"initial_bounds"`
-	Post          string             `json:"post"`
-	List          map[string]any     `json:"list"`
-	PickMode      string             `json:"pick-mode"`
+	InitialBounds initialBounds  `json:"initial_bounds"`
+	Post          string         `json:"post"`
+	List          map[string]any `json:"list"`
+	PickMode      string         `json:"pick-mode"`
 }
 
 type Variable struct {
@@ -27,7 +32,7 @@ type Variable struct {
 }
 
 type Plugin interface {
-	calculate(options Options, linkedId, generatorId, iteration int, variable string) (any, error)
+	calculate(options Options, cacheI cacheItem) (any, *cacheItem, error)
 }
 
 func (variable Variable) getPlugin() (Plugin, error) {
@@ -76,6 +81,7 @@ func (generatorObjects GeneratorObjects) Calculate(linkedObj LinkedObject, ch ch
 	loop:
 		for _, generationRule := range generatorObject.GenerationRules {
 			calculatedIterations := make([]string, 0)
+			accumulatedCache := make([]cacheItem, 0)
 			for count := range generationRule.Iterations {
 				calculatedVariables := make(map[string]any)
 				for variableName, ruleVar := range generationRule.Variables {
@@ -84,9 +90,15 @@ func (generatorObjects GeneratorObjects) Calculate(linkedObj LinkedObject, ch ch
 						break loop
 					}
 
-					res, err := plugin.calculate(ruleVar.Options, linkedObj.ID, generatorObject.Id, count, variableName)
+					res, cacheI, err := plugin.calculate(ruleVar.Options, varCache.get(linkedObj.ID, generatorObject.Id, count, variableName))
 					if err != nil {
 						break loop
+					}
+					if cacheI != nil {
+						cacheI.CurrentValue = res
+						cacheI.variable = variableName
+						cacheI.iteration = count
+						accumulatedCache = append(accumulatedCache, *cacheI)
 					}
 
 					calculatedVariables[variableName] = res
@@ -101,7 +113,7 @@ func (generatorObjects GeneratorObjects) Calculate(linkedObj LinkedObject, ch ch
 			}
 
 			var value string
-			result := Result{linkedId: linkedObj.ID, generatorId: generatorObject.Id, Type: generationRule.Type}
+			result := Result{linkedId: linkedObj.ID, generatorId: generatorObject.Id, Type: generationRule.Type, Cache: accumulatedCache}
 			switch generationRule.Type {
 			case TYPE_ATTRIBUTE:
 				if generationRule.Combine {

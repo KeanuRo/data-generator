@@ -68,9 +68,8 @@ func (c *Cacher) save() error {
 }
 
 func (c *Cacher) flush() {
-	for k := range c.data {
-		delete(c.data, k)
-	}
+	c.data = nil
+	c.data = make(map[int]map[int]map[int]map[string]cacheItem)
 }
 
 func (c *Cacher) get(linkedId, generatorId, iteration int, variable string) cacheItem {
@@ -83,7 +82,9 @@ func (c *Cacher) get(linkedId, generatorId, iteration int, variable string) cach
 	return cacheItem{}
 }
 
-func (c *Cacher) write(linkedId, generatorId, iteration int, variable string, value cacheItem) {
+func (c *Cacher) write(linkedId, generatorId int, value cacheItem) {
+	iteration := value.iteration
+	variable := value.variable
 	_, ok := (c.data)[linkedId]
 	if !ok {
 		(c.data)[linkedId] = make(map[int]map[int]map[string]cacheItem)
