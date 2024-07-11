@@ -67,15 +67,15 @@ type GeneratorObject struct {
 type GeneratorObjects []GeneratorObject
 
 type Result struct {
-	linkedId    int
-	generatorId int
-	Type        string
-	Result      string
-	Attribute   Attribute
-	Cache       []cacheItem
+	linkedId      int
+	generatorId   int
+	Type          string
+	AbstractValue string
+	Attribute     Attribute
+	Cache         []cacheItem
 }
 
-func (generatorObjects GeneratorObjects) Calculate(linkedObj LinkedObject, ch chan<- Result, wg *sync.WaitGroup) {
+func (generatorObjects GeneratorObjects) Calculate(linkedObj *LinkedObject, ch chan<- Result, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for _, generatorObject := range generatorObjects {
 	loop:
@@ -134,7 +134,7 @@ func (generatorObjects GeneratorObjects) Calculate(linkedObj LinkedObject, ch ch
 				attribute.Value = value
 				linkedObj.Attributes[generationRule.Ident] = attribute
 
-				result.Result = value
+				result.AbstractValue = value
 				result.Attribute = attribute
 
 				ch <- result

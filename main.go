@@ -26,7 +26,7 @@ func main() {
 
 	for _, object := range objects {
 		wg.Add(1)
-		go object.generatorObjects.Calculate(*object, channel, wg)
+		go object.generatorObjects.Calculate(object, channel, wg)
 	}
 
 	results := make([]Result, 0)
@@ -40,14 +40,24 @@ func main() {
 	close(channel)
 	varCache.flush()
 
+	writer := Writer{}
+	writer.initialize()
+	writer.SetTime(time.Now())
+
 	for _, result := range results {
+		writer.Remember(result)
 		cacheItems := result.Cache
 		for _, cacheI := range cacheItems {
 			varCache.write(result.linkedId, result.generatorId, cacheI)
 		}
 	}
 
-	varCache.save()
+	writer.Prepare()
+
+	err = varCache.save()
+	if err != nil {
+		panic(err)
+	}
 
 	fmt.Println(time.Now().Sub(start))
 }
