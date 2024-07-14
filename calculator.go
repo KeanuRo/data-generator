@@ -19,11 +19,17 @@ type initialBounds struct {
 	Max int `json:"max"`
 }
 
+type bounds struct {
+	Min float64 `json:"min"`
+	Max float64 `json:"max"`
+}
+
 type Options struct {
 	InitialBounds initialBounds  `json:"initial_bounds"`
-	Post          string         `json:"post"`
 	List          map[string]any `json:"list"`
 	PickMode      string         `json:"pick-mode"`
+	Post          string         `json:"post"`
+	Bounds        *bounds        `json:"bounds"`
 }
 
 type Variable struct {
@@ -87,11 +93,13 @@ func (generatorObjects GeneratorObjects) Calculate(linkedObj *LinkedObject, ch c
 				for variableName, ruleVar := range generationRule.Variables {
 					plugin, err := ruleVar.getPlugin()
 					if err != nil {
+						reportErrorLong(linkedObj.ID, generatorObject.Id, count, variableName, err)
 						break loop
 					}
 
 					res, cacheI, err := plugin.calculate(ruleVar.Options, varCache.get(linkedObj.ID, generatorObject.Id, count, variableName))
 					if err != nil {
+						reportErrorLong(linkedObj.ID, generatorObject.Id, count, variableName, err)
 						break loop
 					}
 					if cacheI != nil {
@@ -100,11 +108,22 @@ func (generatorObjects GeneratorObjects) Calculate(linkedObj *LinkedObject, ch c
 						accumulatedCache = append(accumulatedCache, *cacheI)
 					}
 
+					if ruleVar.Options.Bounds != nil {
+						res, err = ruleVar.Options.Bounds.bound(res)
+						if err != nil {
+							reportErrorLong(linkedObj.ID, generatorObject.Id, count, variableName, err)
+						}
+					}
+
 					calculatedVariables[variableName] = res
+					if res == nil {
+						fmt.Println("alarm")
+					}
 				}
 
 				format, err := applyFormat(generationRule.Format, calculatedVariables, linkedObj.Attributes)
 				if err != nil {
+					reportError(linkedObj.ID, generatorObject.Id, count, err)
 					break loop
 				}
 
@@ -118,6 +137,7 @@ func (generatorObjects GeneratorObjects) Calculate(linkedObj *LinkedObject, ch c
 				if generationRule.Combine {
 					raw, err := json.Marshal(calculatedIterations)
 					if err != nil {
+						reportErrorShort(linkedObj.ID, generatorObject.Id, err)
 						break loop
 					}
 					value = string(raw)
@@ -127,6 +147,8 @@ func (generatorObjects GeneratorObjects) Calculate(linkedObj *LinkedObject, ch c
 
 				attribute, ok := linkedObj.Attributes[generationRule.Ident]
 				if !ok {
+					err := errors.New("object has no attribute [" + generationRule.Ident + "]")
+					reportErrorShort(linkedObj.ID, generatorObject.Id, err)
 					break loop
 				}
 

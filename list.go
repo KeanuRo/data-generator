@@ -5,16 +5,26 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strconv"
 )
 
-const MODE_RAND = "rand"
-const MODE_SEQUENCE_LOOP = "sequence-loop"
-const MODE_SEQUECE_WITH_REVERSE = "sequence-with-reverse"
-const MODE_TIME = "time"
+const (
+	MODE_RAND                 = "rand"
+	MODE_SEQUENCE_LOOP        = "sequence-loop"
+	MODE_SEQUECE_WITH_REVERSE = "sequence-with-reverse"
+	MODE_TIME                 = "time"
+)
+
+const (
+	TYPE_INT    = "int"
+	TYPE_FLOAT  = "float"
+	TYPE_STRING = "string"
+)
 
 type list struct {
-	data map[string]any
-	keys []string
+	data    map[string]any
+	keys    []string
+	keyType string
 }
 
 func (l list) calculate(options Options, cacheI cacheItem) (any, *cacheItem, error) {
@@ -27,6 +37,13 @@ func (l list) calculate(options Options, cacheI cacheItem) (any, *cacheItem, err
 	for key := range valuesList {
 		l.keys = append(l.keys, key)
 	}
+	l.keyType = l.getTypeOfKeys()
+
+	var err error
+	l.keys, err = l.sortKeys()
+	if err != nil {
+		return nil, nil, err
+	}
 
 	_, ok := valuesList[cacheI.CurrentValue]
 
@@ -36,8 +53,7 @@ func (l list) calculate(options Options, cacheI cacheItem) (any, *cacheItem, err
 		return newValue, &cacheI, nil
 	}
 
-	sort.Strings(l.keys)
-
+	var result string
 	switch options.PickMode {
 	case MODE_RAND:
 		candidate := l.keys[rand.Intn(len(l.keys))]
@@ -45,8 +61,8 @@ func (l list) calculate(options Options, cacheI cacheItem) (any, *cacheItem, err
 		if err != nil {
 			return nil, nil, err
 		}
+		result = chosen
 		cacheI.CurrentValue = chosen
-		return chosen, &cacheI, nil
 	case MODE_SEQUENCE_LOOP:
 		candidate, err := l.searchInListStandard(cacheI.CurrentValue)
 		chosen, err := l.randomKeyWithProbability(cacheI.CurrentValue, candidate)
@@ -54,7 +70,7 @@ func (l list) calculate(options Options, cacheI cacheItem) (any, *cacheItem, err
 			return nil, nil, err
 		}
 		cacheI.CurrentValue = chosen
-		return chosen, &cacheI, nil
+		result = chosen
 	case MODE_SEQUECE_WITH_REVERSE:
 		candidate, err := l.searchInListWithReverse(&cacheI)
 
@@ -74,19 +90,21 @@ func (l list) calculate(options Options, cacheI cacheItem) (any, *cacheItem, err
 			cacheI.GoReverse = false
 		}
 
-		return chosen, &cacheI, nil
+		result = chosen
 	case MODE_TIME:
-		return 5, &cacheI, nil
+		return int64(5), &cacheI, nil
 	default:
 		return nil, nil, errors.New(fmt.Sprintf("mode [%s] not supported", options.PickMode))
 	}
+
+	return l.transformResult(result), &cacheI, nil
 }
 
 func (l list) randomKeyWithProbability(current, candidate string) (string, error) {
-	randomValue := int(rand.Intn(10000) / 100)
-	currentProbability, ok := l.data[current].(int)
+	randomValue := float64(rand.Intn(10000)) / 100
+	currentProbability, ok := l.data[current].(float64)
 	if !ok {
-		return "", errors.New("probability has to be type of integer")
+		return "", errors.New("probability has to be numeric")
 	}
 
 	if randomValue < currentProbability {
@@ -127,6 +145,10 @@ func (l list) searchInListWithReverse(cacheI *cacheItem) (string, error) {
 		}
 	}
 
+	if current == l.keys[len(l.keys)-1] {
+		return l.keys[0], nil
+	}
+
 	for i, key := range l.keys {
 		candidate := key
 		if candidate == current {
@@ -135,4 +157,78 @@ func (l list) searchInListWithReverse(cacheI *cacheItem) (string, error) {
 	}
 
 	return "", errors.New("unexpected behaviour in reverse list")
+}
+
+func (l list) getTypeOfKeys() string {
+	first := l.keys[0]
+
+	_, err := strconv.ParseInt(first, 10, 64)
+	if err == nil {
+		return TYPE_INT
+	}
+
+	_, err = strconv.ParseFloat(first, 64)
+	if err == nil {
+		return TYPE_FLOAT
+	}
+
+	return TYPE_STRING
+}
+
+func (l list) sortKeys() ([]string, error) {
+	var lastErr error
+
+	if l.keyType == TYPE_STRING {
+		sort.Strings(l.keys)
+		return l.keys, nil
+	}
+
+	sort.Slice(l.keys, func(i, j int) bool {
+		if l.keyType == TYPE_INT {
+			a, err := strconv.ParseInt(l.keys[i], 10, 64)
+
+			if err != nil {
+				lastErr = err
+				return false
+			}
+
+			b, err := strconv.ParseInt(l.keys[j], 10, 64)
+			if err != nil {
+				lastErr = err
+				return false
+			}
+
+			return a < b
+
+		} else {
+			a, err := strconv.ParseFloat(l.keys[i], 64)
+
+			if err != nil {
+				lastErr = err
+				return false
+			}
+
+			b, err := strconv.ParseFloat(l.keys[j], 64)
+			if err != nil {
+				lastErr = err
+				return false
+			}
+
+			return a < b
+		}
+	})
+
+	return l.keys, lastErr
+}
+
+func (l list) transformResult(result string) (value any) {
+	switch l.keyType {
+	case TYPE_INT:
+		value, _ = strconv.ParseInt(result, 10, 64)
+	case TYPE_FLOAT:
+		value, _ = strconv.ParseFloat(result, 64)
+	default:
+		value = result
+	}
+	return value
 }

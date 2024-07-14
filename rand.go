@@ -21,5 +21,5 @@ func (r randNumber) calculate(options Options, cacheI cacheItem) (any, *cacheIte
 		return miN, nil, nil
 	}
 
-	return rand.Intn(maX-miN) + miN, nil, nil
+	return int64(rand.Intn(maX-miN) + miN), nil, nil
 }
