@@ -95,7 +95,6 @@ func (generatorObjects GeneratorObjects) Calculate(linkedObj *LinkedObject, ch c
 						break loop
 					}
 					if cacheI != nil {
-						cacheI.CurrentValue = res
 						cacheI.variable = variableName
 						cacheI.iteration = count
 						accumulatedCache = append(accumulatedCache, *cacheI)

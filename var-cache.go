@@ -15,8 +15,8 @@ type Cacher struct {
 type cacheItem struct {
 	iteration    int
 	variable     string
-	CurrentValue any  `json:"current_value"`
-	GoReverse    bool `json:"go_reverse"`
+	CurrentValue string `json:"current_value"`
+	GoReverse    bool   `json:"go_reverse"`
 }
 
 var varCache Cacher
