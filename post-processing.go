@@ -2,26 +2,23 @@ package main
 
 import (
 	"errors"
+	"math/rand"
+	"strconv"
 	"strings"
 )
 
 type operand struct {
 	operation string
-	arguments []int
-	value     string
+	arguments []*operand
+	value     any
 }
 
-type level struct {
-	operands []operand
-}
-
-type PostProcessing struct {
+type PostProcessor struct {
 	formula string
-	levels  []level
+	tree    *operand
 }
 
-func (p *PostProcessing) Prepare() error {
-	p.levels = make([]level, 0)
+func (p *PostProcessor) prepare() error {
 	formula := p.formula
 
 	replacer := strings.NewReplacer("\r", "", "\n", "", "\t", "")
@@ -36,62 +33,56 @@ func (p *PostProcessing) Prepare() error {
 
 	characters := strings.Split(formula, "")
 
-	fatherStack := make([]int, 0)
+	stack := make([][]*operand, 0)
 	depthLevel := 0
 	operation := ""
 	for _, character := range characters {
 		switch character {
 		case "{", "[", "(":
-			if depthLevel == len(p.levels) {
-				p.levels = append(p.levels, level{})
+			if depthLevel == len(stack) {
+				stack = append(stack, make([]*operand, 0))
 			}
 
-			newOperand := operand{operation: operation, arguments: make([]int, 0)}
-			p.levels[depthLevel].operands = append(p.levels[depthLevel].operands, newOperand)
+			newOperand := operand{operation: operation, arguments: make([]*operand, 0)}
+			stack[depthLevel] = append(stack[depthLevel], &newOperand)
 
 			if depthLevel > 0 {
-				currentFather := fatherStack[len(fatherStack)-1]
-				p.levels[depthLevel-1].operands[currentFather].arguments =
-					append(p.levels[depthLevel-1].operands[currentFather].arguments,
-						len(p.levels[depthLevel].operands)-1,
-					)
+				currentFather := stack[depthLevel-1][len(stack[depthLevel-1])-1]
+				currentFather.arguments = append(currentFather.arguments, &newOperand)
 			}
-
-			fatherStack = append(fatherStack, len(p.levels[depthLevel].operands)-1)
 
 			depthLevel++
 
 			operation = ""
 		case "}", "]", ")":
 			if operation != "" {
-				if depthLevel == len(p.levels) {
-					p.levels = append(p.levels, level{})
+				if depthLevel == len(stack) {
+					stack = append(stack, make([]*operand, 0))
 				}
-				newOperand := operand{value: operation}
-				p.levels[depthLevel].operands = append(p.levels[depthLevel].operands, newOperand)
+
+				newOperand := operand{value: typeConvert(operation)}
+				stack[depthLevel] = append(stack[depthLevel], &newOperand)
 
 				if depthLevel > 0 {
-					currentFather := fatherStack[len(fatherStack)-1]
-					p.levels[depthLevel-1].operands[currentFather].arguments =
-						append(p.levels[depthLevel-1].operands[currentFather].arguments, len(p.levels[depthLevel].operands)-1)
+					currentFather := stack[depthLevel-1][len(stack[depthLevel-1])-1]
+					currentFather.arguments = append(currentFather.arguments, &newOperand)
 				}
 			}
 
 			depthLevel--
-			fatherStack = fatherStack[:len(fatherStack)-1]
 			operation = ""
 		case ";", ",":
 			if operation != "" {
-				if depthLevel == len(p.levels) {
-					p.levels = append(p.levels, level{})
+				if depthLevel == len(stack) {
+					stack = append(stack, make([]*operand, 0))
 				}
-				newOperand := operand{value: operation}
-				p.levels[depthLevel].operands = append(p.levels[depthLevel].operands, newOperand)
+
+				newOperand := operand{value: typeConvert(operation)}
+				stack[depthLevel] = append(stack[depthLevel], &newOperand)
 
 				if depthLevel > 0 {
-					currentFather := fatherStack[len(fatherStack)-1]
-					p.levels[depthLevel-1].operands[currentFather].arguments =
-						append(p.levels[depthLevel-1].operands[currentFather].arguments, len(p.levels[depthLevel].operands)-1)
+					currentFather := stack[depthLevel-1][len(stack[depthLevel-1])-1]
+					currentFather.arguments = append(currentFather.arguments, &newOperand)
 				}
 			}
 
@@ -101,14 +92,120 @@ func (p *PostProcessing) Prepare() error {
 		}
 	}
 
+	if len(stack) == 0 {
+		return errors.New("invalid formula")
+	}
+
+	if len(stack[0]) == 0 {
+		return errors.New("invalid formula")
+	}
+
+	p.tree = stack[0][0]
+
 	return nil
 }
 
-func calculatePostProcessing(formula string, value any) any {
-	postProcessing := PostProcessing{formula: formula}
-	err := postProcessing.Prepare()
-	if err != nil {
-		return err
+func typeConvert(value string) any {
+	val, err := strconv.ParseInt(value, 10, 64)
+	if err == nil {
+		return val
+	} else {
+		val, err := strconv.ParseFloat(value, 64)
+		if err == nil {
+			return val
+		}
 	}
-	return postProcessing
+
+	return value
+}
+
+func (p *PostProcessor) calculate(input any) (any, error) {
+	value, err := p.tree.evaluate(input)
+	return value, err
+}
+
+func (op *operand) evaluate(input any) (any, error) {
+	if op.operation == "" {
+		strVal, ok := op.value.(string)
+		if !ok {
+			return op.value, nil
+		}
+
+		if strVal == "~0" {
+			return input, nil
+		}
+
+		return op.value, nil
+	}
+
+	rawArguments := op.arguments
+	arguments := make([]any, 0)
+	for _, rawArgument := range rawArguments {
+		arg, err := rawArgument.evaluate(input)
+		if err != nil {
+			return nil, err
+		}
+		arguments = append(arguments, arg)
+	}
+	switch op.operation {
+	case "rand":
+		if len(arguments) != 2 {
+			return nil, errors.New("not enough arguments for rand")
+		}
+
+		minimum, ok := arguments[0].(int64)
+		if !ok {
+			return nil, errors.New("invalid argument for rand")
+		}
+
+		maximum, ok := arguments[1].(int64)
+		if !ok {
+			return nil, errors.New("invalid argument for rand")
+		}
+
+		return int64(rand.Intn(int(maximum-minimum)) + int(minimum)), nil
+	case "sum":
+		if len(arguments) != 2 {
+			return nil, errors.New("not enough arguments for rand")
+		}
+
+		intFirst, ok := arguments[0].(int64)
+		if !ok {
+			floatFirst, ok := arguments[0].(float64)
+			if !ok {
+				return nil, errors.New("invalid argument for sum")
+			}
+
+			floatSecond, ok := arguments[1].(float64)
+			if !ok {
+				return nil, errors.New("invalid argument for sum")
+			}
+
+			return floatFirst + floatSecond, nil
+		}
+
+		intSecond, ok := arguments[1].(int64)
+		if !ok {
+			return nil, errors.New("invalid argument for sum")
+		}
+
+		return intFirst + intSecond, nil
+	}
+
+	return nil, nil
+}
+
+func Calculate(formula string, value any) (any, error) {
+	postProcessor := PostProcessor{formula: formula}
+	err := postProcessor.prepare()
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := postProcessor.calculate(value)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
