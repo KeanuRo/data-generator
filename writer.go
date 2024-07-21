@@ -68,7 +68,8 @@ func (w *Writer) prepareToHistoryTables() {
 	for tableName, table := range w.toHistoryTables {
 		query := strings.Builder{}
 		query.WriteString("INSERT INTO " + tableName + " (object_attribute_id, time,value) VALUES ")
-		for i, row := range table {
+		i := 0
+		for _, row := range table {
 			if i > 0 {
 				query.WriteString(",")
 			}
@@ -77,7 +78,9 @@ func (w *Writer) prepareToHistoryTables() {
 				w.queries = append(w.queries, query.String())
 				query.Reset()
 				query.WriteString("INSERT INTO " + tableName + " (object_attribute_id, time,value) VALUES ")
+				i = 0
 			}
+			i++
 		}
 		w.queries = append(w.queries, query.String())
 	}
