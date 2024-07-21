@@ -29,35 +29,29 @@ func main() {
 		go object.generatorObjects.Calculate(object, channel, wg)
 	}
 
-	results := make([]Result, 0)
+	writer := Writer{}
+	writer.initialize(db)
+	writer.SetTime(time.Now())
+
+	newCache := Cacher{}
+	newCache.data = make(map[int]map[int]map[int]map[string]cacheItem)
+
 	go func() {
 		for result := range channel {
-			results = append(results, result)
+			writer.Remember(result)
+			cacheItems := result.Cache
+			for _, cacheI := range cacheItems {
+				newCache.write(result.linkedId, result.generatorId, cacheI)
+			}
 		}
 	}()
 
 	wg.Wait()
 	close(channel)
-	varCache.flush()
 
-	writer := Writer{}
-	writer.initialize()
-	writer.SetTime(time.Now())
+	writer.Exec()
 
-	for _, result := range results {
-		writer.Remember(result)
-		cacheItems := result.Cache
-		for _, cacheI := range cacheItems {
-			varCache.write(result.linkedId, result.generatorId, cacheI)
-		}
-	}
-
-	writer.Prepare()
-
-	err = varCache.save()
-	if err != nil {
-		panic(err)
-	}
+	go newCache.save()
 
 	fmt.Println(time.Now().Sub(start))
 }
